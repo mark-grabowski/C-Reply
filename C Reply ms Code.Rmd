@@ -1,0 +1,264 @@
+---
+title: "C et al. Reply Simulations using TESS to geenerate Trees"
+output: html_notebook
+editor_options: 
+  chunk_output_type: inline
+---
+
+Code to run simulations in C et al. Reply
+
+```{r}
+library(geiger)
+library(motmot)
+library(caper)
+library(slouch)
+library(TESS)
+```
+
+####
+OU vs BM Model using Loop, looped for increasing tip sizes and changing birth/death rate
+
+```{r}
+#tips<-c(25,50)
+#tips<-c(25,50,100)
+
+tips<-c(25,50,100,200,500,1000)
+#For b/d loops
+#lambdas<-c(0.1,0.1,0.1,0.1)
+lambda<-1
+mus<-c(0.0,0.25,0.5,0.75)
+#mus<-c(0.0)
+quantiles <- c(0.025, 0.975)
+nsim<-500
+#nsim<-1
+
+
+#Now make summary line in new table 1
+#summary.stats<-data.frame(matrix(NA, ncol=15, nrow=3*length(tips)*length(mus)))
+out.stats <- as.data.frame(matrix(NA, ncol=15, nrow=3))
+summary.stats <- as.data.frame(matrix(NA, ncol=15, nrow=1))
+
+saved.trees<-NULL
+saved.slouch.output<-NULL
+saved.brown.output<-NULL
+saved.data<-NULL
+########
+#Individual Runs Column Headers
+names(out.stats)<-c("Tip Number","d/b","Stat","Original TL","I prime",
+                    "BM bm-var","BM logL","BM AICc","OU maxL","OU AICc",
+                    "OU a","OU t12","OU BM-var","maxL OU-logL BM Diff","C-Delta AICc")
+
+#table.lines<-data.frame(matrix(NA,nrow=1,ncol=8))
+
+
+############
+#Summary Stats Column Headers
+names(summary.stats)<-c("Tip Number","d/b","Stat","Original TL","I prime",
+                    "BM bm-var","BM logL","BM AICc","OU maxL","OU AICc",
+                    "OU a","OU t12","OU BM-var","maxL OU-logL BM Diff","C-Delta AICc")
+
+
+##################
+table.lines<-data.frame(matrix(NA,nrow=1,ncol=11))
+
+#Abbreviated Summary Stats Table Header
+names(table.lines)<-c("Tip Number","d/b","C-Lik Rejection Rate","C-AICc Rejection Rate","C-Median t12","C-2.5%  t12","C-97.5% t12","Wrong OU-test","Uncertain OU-Test","Includes BM-Test","hl OU Test")
+
+counter<-0
+
+for(j in 1:length(tips)){
+  for(k in 1:length(mus)){
+    #Table for saving individual simulation runs
+    out <- as.data.frame(matrix(NA, ncol=23, nrow=nsim))
+    names(out)<-c("Iteration","Tree","Original TL","I prime","BM bm-var",
+              "BM logL","BM AICc","OU maxL","OU AICc","OU a",
+              "OU t12","OU BM-var","maxL OU-logL BM Diff","C-Reject lik","C-Delta AICc",
+              "C-Reject AICc","Slouch Inspect Model #","S-t1/2","S-t1/2 2-unit","S-vy","S-vy   
+              2-unit","Wrong OU-test","Uncertain OU-test")
+
+    for (i in 1:nsim){
+      print(paste("Tips=",tips[j],"d/b=",mus[k]/lambda,"Nsim=",i))
+      
+      #Original C et al. Code	
+      #tr <- sim.globalBiDe.taxa(n=1,nTaxa=51,max=10,1,0,MRCA=TRUE)[[1]]
+
+      #Revised for newest TESSS
+      tr<-tess.sim.taxa(n=1,nTaxa=tips[j],max=10,lambda=lambda,mu=mus[k],MRCA=TRUE)[[1]] 
+      
+      #############
+      out[i,3] <- max(branching.times(tr))
+      tr$edge.length<-tr$edge.length/max(branching.times(tr))
+    
+      ##################
+      #Add data to tree - Original C et al. setup
+      #dat <- transformPhylo.sim(tr, n=1, model="bm") #Simulates trait data on a tree using BM model
+    ################################
+      dat<-sim.char(phy=tr,par=lambda,model="BM",root=0) #Simulate trait data using geiger
+      dat<-as.matrix(dat[,,1])
+      ###############################
+      bm_mod <- transformPhylo.ML(dat, tr, model="bm", modelCIs=FALSE) #Fit likelihood models - BM
+      ou_mod <- transformPhylo.ML(dat, tr, model="OU", modelCIs=FALSE)	#Fit likelihood models - OU
+  ######################################
+
+      counter<-counter+1
+      #print(counter)
+      saved.trees<-c(saved.trees,list(tr))
+      saved.data<-c(saved.data,list(dat))
+      
+      #Tree imbalance
+      sprich <- data.frame(species=tr$tip.label, rich=rep(1, Ntip(tr)))
+      cdat <- comparative.data(phy=tr, dat=sprich, names.col=species) #Comparative dataset creation
+      ft <- fusco.test(cdat, rich=rich, reps=1)
+      #mean(ft[[1]][,"I.prime"]) #
+  
+      
+#########################################################      
+      #Save individual run output
+      out[i,1] <- i
+      out[i,2] <- paste("yule",tips[j])
+      out[i,4] <- mean(ft[[1]][,"I.prime"])
+      out[i,5] <- bm_mod$brownianVariance
+      out[i,6] <- bm_mod$logLikelihood
+      out[i,7]<-  bm_mod$AICc
+      out[i,8] <- ou_mod$MaximumLikelihood
+      out[i,9] <- ou_mod$AICc
+      out[i,10] <- ou_mod$Alpha
+      out[i,11] <- log(2)/ou_mod$Alpha
+      out[i,12] <- ou_mod$brownianVariance
+      out[i,13] <- 2*(ou_mod$MaximumLikelihood - bm_mod$logLikelihood)
+      out[i,14] <- if(2*(ou_mod$MaximumLikelihood - bm_mod$logLikelihood)>3.84){"Reject"}else{"Accept"}
+      out[i,15] <- ou_mod$AICc-bm_mod$AICc
+      out[i,16] <- if(ou_mod$AICc-bm_mod$AICc < 0){"Reject"}else{"Accept"}
+      out[i,22]<-if(out[i,11]<1 && (2*(ou_mod$MaximumLikelihood - bm_mod$logLikelihood)>3.84)){"OU"}else{"BM"}#Wrong inference reached by researcher
+
+                    
+############################### 
+    #Test using SLOUCH
+      slouch.output<-slouch.fit(phy=tr,
+                                species=tr$tip.label,
+                                response=dat,
+                                hl_values = seq(0.00001, 3, length.out = 50),
+                                vy_values = seq(0.00001, as.numeric(var(dat)*10), length.out = 50),
+                                hillclimb = FALSE,convergence = 150,
+                                lower = c(0.00001, 0.00001))
+
+
+      out[i,18]<- slouch.output$evolpar$hl
+      out[i,19]<- paste("[",round(slouch.output$supported_range[1,1],2),"-",round(slouch.output$supported_range[1,2],2),"]",sep="")
+      out[i,20]<- slouch.output$evolpar$vy
+      out[i,21]<- paste("[",round(slouch.output$supported_range[2,1],2),"-",round(slouch.output$supported_range[2,2],2),"]",sep="")
+      #out[i,22]<-if(slouch.output$evolpar$hl<1){"TRUE"}else{"FALSE"}
+      saved.slouch.output<-c(saved.slouch.output,list(slouch.output))
+
+      if(2*(ou_mod$MaximumLikelihood - bm_mod$logLikelihood)>3.84){out[i,17]<-counter}
+      #print(slouch.output$supported_range[1,2])
+     if(out[i,11]>1){out[i,23]<-"BM"}
+        else(if(slouch.output$supported_range[1,2]>=3){out[i,23]<-"Includes BM"}
+             else(if(slouch.output$supported_range[1,2]>=1 &
+                     slouch.output$supported_range[1,2]<3){out[i,23]<-"Uncertain"}))
+     if(out[i,11]<1 & slouch.output$supported_range[1,2]<1){out[i,23]<-"OU"}
+    }
+#############################
+    csv.name<-paste("Tips ",tips[j],"db ",mus[k]/lambda,"Iters",nsim,".csv")
+    write.csv(out,file = csv.name,row.names=FALSE) #Write complete runs to csv file
+  
+
+    out.stats[1,1] <- tips[j]
+    out.stats[1,2] <- mus[k]/lambda
+    out.stats[1,3] <- "Median"
+    out.stats[1,4] <- median(out$`Original TL`)
+    out.stats[1,5] <- median(out$`I prime`)
+    out.stats[1,6] <- median(out$`BM bm-var`)
+    out.stats[1,7] <- median(out$`BM logL`)
+    out.stats[1,8]<-  median(out$`BM AICc`)
+    out.stats[1,9] <- median(out$`OU maxL`)
+    out.stats[1,10] <- median(out$`OU AICc`)
+    out.stats[1,11] <- median(out$`OU a`)
+    out.stats[1,12] <- median(log(2)/out$`OU a`)
+    out.stats[1,13] <- median(out$`OU BM-var`)
+    out.stats[1,14] <- median(out$`maxL OU-logL BM Diff`)
+    out.stats[1,15] <- median(out$`C-Delta AICc`)
+
+    out.stats[2,1] <- tips[j]
+    out.stats[2,2] <- mus[k]/lambda
+    out.stats[2,3] <- "2.5%"
+    out.stats[2,4] <- quantile(out$`Original TL`, quantiles)[1]
+    out.stats[2,5] <- quantile(out$`I prime`, quantiles)[1]
+    out.stats[2,6] <- quantile(out$`BM bm-var`, quantiles)[1]
+    out.stats[2,7] <- quantile(out$`BM logL`, quantiles)[1]
+    out.stats[2,8]<-  quantile(out$`BM AICc`, quantiles)[1]
+    out.stats[2,9] <- quantile(out$`OU maxL`, quantiles)[1]
+    out.stats[2,10] <- quantile(out$`OU AICc`, quantiles)[1]
+    out.stats[2,11] <- quantile(out$`OU a`, quantiles)[1]
+    out.stats[2,12] <- quantile(log(2)/out$`OU a`, quantiles)[1]
+    out.stats[2,13] <- quantile(out$`OU BM-var`, quantiles)[1]
+    out.stats[2,14] <- quantile(out$`maxL OU-logL BM Diff`, quantiles)[1]
+    out.stats[2,15] <- quantile(out$`C-Delta AICc`, quantiles)[1]
+
+    out.stats[3,1] <- tips[j]
+    out.stats[3,2] <- mus[k]/lambda
+    out.stats[3,3] <- "97.5%"
+    out.stats[3,4] <- quantile(out$`Original TL`, quantiles)[2]
+    out.stats[3,5] <- quantile(out$`I prime`, quantiles)[2]
+    out.stats[3,6] <- quantile(out$`BM bm-var`, quantiles)[2]
+    out.stats[3,7] <- quantile(out$`BM logL`, quantiles)[2]
+    out.stats[3,8]<-  quantile(out$`BM AICc`, quantiles)[2]
+    out.stats[3,9] <- quantile(out$`OU maxL`, quantiles)[2]
+    out.stats[3,10] <- quantile(out$`OU AICc`, quantiles)[2]
+    out.stats[3,11] <- quantile(out$`OU a`, quantiles)[2]
+    out.stats[3,12] <- quantile(log(2)/out$`OU a`, quantiles)[2]
+    out.stats[3,13] <- quantile(out$`OU BM-var`, quantiles)[2]
+    out.stats[3,14] <- quantile(out$`maxL OU-logL BM Diff`, quantiles)[2]
+    out.stats[3,15] <- quantile(out$`C-Delta AICc`, quantiles)[2]
+    
+
+    summary.stats<-rbind(summary.stats,out.stats)
+
+    ##########
+    #out<-out %>% mutate_if(is.numeric, round,digits=3)
+    t12.quantiles <- quantile(out[,11], quantiles) ## Use 'alfs' and math to calculate the quantiles of phylogenetic half-life
+    #t12.quantiles<-c(2,5)
+    C.Lik.RR<-length(grep("Reject", out[,14]))/nsim
+    C.AICc.RR<-length(grep("Reject", out[,16]))/nsim
+    #S.AICc.RR<-length(grep("Reject", out[,29]))/nsim
+    C.Median.t12<-median(out[,11])
+    C.low.t12<-t12.quantiles[1]
+    C.high.t12<-t12.quantiles[2]
+    Wrong.OU.test<-length(grep("OU", out[,22]))/nsim
+    Uncertain.OU.test<-length(grep("Uncertain", out[,23]))/nsim
+    Includes.BM.test<-length(grep("Includes BM", out[,23]))/nsim
+    hl.OU.test<-length(grep("OU", out[,23]))/nsim
+
+    line<-c(tips[j],mus[k]/lambda,C.Lik.RR,C.AICc.RR,C.Median.t12,C.low.t12,C.high.t12,Wrong.OU.test,Uncertain.OU.test,Includes.BM.test,hl.OU.test)
+
+    names(line)<-names(table.lines)
+    table.lines<-rbind(table.lines,line)
+    
+    }
+  
+  }
+  summary.stats<-summary.stats[-1,]
+  write.csv(summary.stats,file = "2022 Table TESS 1b.csv",row.names=FALSE) #Write complete runs to csv file
+ 
+
+  table.lines<-table.lines[-1,]
+  write.csv(table.lines,file = "2022 Table TESS 1a.csv",row.names=FALSE) #Write complete runs to csv file
+
+save.image("2022 Tables TESS Data.RData")
+
+```  
+
+Make Figure for individual Slouch runs from saved list
+```{r}
+summary(saved.slouch.output[[203]])
+summary(saved.slouch.output[[206]])
+summary(saved.slouch.output[[223]])
+summary(saved.slouch.output[[214]])
+#6X6
+```
+
+```{r}
+summary(saved.slouch.output[[14]])
+
+
+```
