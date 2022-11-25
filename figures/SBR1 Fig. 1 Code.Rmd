@@ -1,0 +1,93 @@
+---
+title: "Grabowski et al. - Fig. 1 Code"
+output: html_notebook
+---
+
+Load Saved Slouch Model List
+```{r}
+load("/Users/markgrabowski/Library/CloudStorage/GoogleDrive-mark.walter.grabowski@gmail.com/My Drive/Shared with Macbook/Cooper et al. Reply 020122/WS/2022 Tables TESS Data.RData")
+```
+
+Grab relevant models from list
+```{r}
+m0<-(saved.slouch.output[[151]])
+m1<-(saved.slouch.output[[164]])
+m2<-(saved.slouch.output[[194]])
+m3<-(saved.slouch.output[[189]])
+```
+
+
+Make Figure 1
+```{r}
+model.list<-list(m0,m1,m2,m3)
+l <- list()
+
+for (i in 1:4){
+  #model<-paste("m",i,sep="")
+  
+## Grab the grid search into a dataframe
+  hl <- sapply(model.list[[i]]$parameter_space, function(x) x$par$hl)
+  vy <- sapply(model.list[[i]]$parameter_space, function(x) x$par$vy)
+  sup <- sapply(model.list[[i]]$parameter_space, function(x) x$support)
+
+  df0 <- tibble("hl" = hl,
+                "vy" = vy,
+                "sup" = sup)
+  maxlogL <- max(df0$sup)
+  df0$sup <- df0$sup - maxlogL
+
+  df0$sup_floored <- df0$sup
+  df0$sup_floored[df0$sup_floored < -2.1] <- -2.1
+
+  df0$model <- paste0("model", i)
+  l[[i]] <- df0
+  cat(".")}
+
+cat("\n")
+
+df <- bind_rows(l)
+ps <- list()
+
+for (i in 1:4){
+  df <- l[[i]]
+
+  p1 <- ggplot(df, aes(x = hl, y = vy, z = sup_floored)) +
+    #geom_tile() + ## this is too grainy
+    geom_raster(mapping = aes(x = hl, y = vy, fill = sup), inherit.aes = FALSE, interpolate = TRUE) +
+    stat_contour(binwidth = 0.5, color = "black") +
+
+    geom_point(data = df[which.max(df$sup),], color = "black", size = rel(3)) +
+    scale_fill_gradient(limits = c(-2.0, 0),
+                        low = "white", high = "skyblue",
+                        na.value = "white",
+                        name = TeX("$\\Delta$logL")) +
+    # scale_fill_viridis_c() +
+    theme_classic() +
+    labs(y = "Stationary variance", x = "Phylogenetic half-life") +
+    theme(#legend.position = c(0.68, 0.2),
+          legend.position = "none",
+          legend.background = element_blank())
+  
+  #if (i %in% c(1,2)){
+  #}else{ ## Remove y-axis clutter from the 2nd and 3rd column
+  #  p1 <- p1 + theme(axis.text.y = element_blank(), axis.title.y = element_blank())
+  #}
+
+  if (i %in% 1:2){ ## Remove x-axis from the top row
+    p1 <- p1 + theme(axis.text.x = element_blank(), axis.title.x = element_blank())
+  }
+  ps[[i]] <- p1
+
+}
+ps[[4]] <- ps[[4]] + theme(legend.position = c(0.8, 0.6))
+
+p2 <- Reduce("+", ps) +
+  plot_annotation(tag_levels = "a", tag_suffix = ")") +
+  plot_layout(ncol = 2, nrow = 2)
+
+ggsave("gridplots.pdf", p2, units = "mm", width = 200, height = 200)
+
+
+```
+
+
