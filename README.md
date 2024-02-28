@@ -1,5 +1,5 @@
 # C-Reply
-This is the code used to run the simulations in the reply by Grabowski et al. (2024) - A Cautionary Note on “A Cautionary Note on the Use of Ornstein Uhlenbeck Models in Macroevolutionary Studies - _Systematic Biology_
+This is the code used to run the simulations in the reply by Grabowski et al. (2023) - A Cautionary Note on “A Cautionary Note on the Use of Ornstein Uhlenbeck Models in Macroevolutionary Studies - _Systematic Biology_
 
 ## How to run the code under `scripts`
 
